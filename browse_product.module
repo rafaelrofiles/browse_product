@@ -1,0 +1,196 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function browse_product_menu() {
+	$items['browse/product'] = array(
+    'page callback' => 'browse_product_content',
+    'access arguments' => array('access content'),
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function browse_product_theme() {
+  $path = drupal_get_path('module', 'browse_product') . '/templates';
+  $base = array(
+    'variable' => array(),
+    'path' => $path,
+  );
+  $theme['browse_product'] = $base + array(
+    'template' => 'browse-product',
+  );
+  $theme['browse_product_color_picker'] = $base + array(
+    'template' => 'browse-product-color-picker',
+  );
+  $theme['browse_product_color'] = $base + array(
+    'template' => 'browse-product-color',
+  );
+  
+  return $theme;
+}
+  
+/**
+ * Form definition for product selection.
+ */
+function browse_product_form($form, &$form_state) {
+	$list = product_list();
+	$form['#method'] = 'GET';
+	$form['nid'] = array(
+		'#type' => 'select', 
+		'#options' => $list,
+		'#required' => true,
+		'#default_value' => isset($_GET['nid']) ? $_GET['nid'] : '',
+		'#attributes'     => array(
+	      'onChange' => 'this.form.submit();',
+	    ),
+	);
+	$form['submit'] = array(
+    '#type'       => 'submit',
+    '#value'      => t('Apply'),
+    '#attributes' => array(
+      'style' => array('display: none;'),
+     ),
+  );
+
+	return $form;
+}
+
+/**
+ * Lists of products.
+ */
+function product_list() {
+	$list = array();
+
+	$results = db_query('select nid, title from node where type = :type and status = :status', array(':type' => 'free_design_and_planning', ':status' => 1))->fetchAll();
+
+	if ($results) {
+		foreach ($results as $result) {
+			$list[$result->nid] = $result->title;
+		}
+	}
+
+	return $list;
+}
+
+/**
+ * Displays the content for Browse Product.
+ */
+function browse_product_content() {
+  drupal_add_js(drupal_get_path('module', 'browse_product') . '/js/bootstrap-collapse.min.js', 'file');
+  drupal_add_js(drupal_get_path('module', 'browse_product') . '/js/browse-product.js', 'file');
+
+  $variables['browse_product_form'] = drupal_get_form('browse_product_form');
+  if (isset($_GET['nid'])) {
+    $node = node_load($_GET['nid']);
+    $variables['image'] = field_view_field('node', $node, 'field_images', array(
+      'label' => 'hidden',
+      'type' => 'image',
+    ));
+    $color_groups = field_get_items('node', $node, 'field_field_collection');
+    $variables_picker = ($color_groups) ? browse_products_get_color_groups($color_groups) : false;
+
+    foreach($color_groups as $key => $color_group) {
+      $variables['layers'][$key] = $color_group['value'];
+    }
+
+    $variables['color_picker'] = theme('browse_product_color_picker', $variables_picker);
+    $variables['inquire_form'] = drupal_get_form('browse_product_inquire_form');
+  } 
+  
+  return theme('browse_product', $variables);
+}
+
+/**
+ * Returns the html structure for the color picker.
+ */
+function browse_products_get_color_groups($field_collection) {
+  $variables = array();
+  foreach ($field_collection as $key => $field_collection_item_id) {
+    $field_collection_item = field_collection_item_load($field_collection_item_id['value']);
+    $display_as_text = field_get_items('field_collection_item', $field_collection_item, 'field_display_as_text');
+    $display_as_text = ($display_as_text) ? $display_as_text[0]['value'] : false;
+    $variables['color_groups'][$key]['layer'] = $field_collection_item->item_id;
+    $variables['color_groups'][$key]['display_as_text'] = $display_as_text;
+    $variables['color_groups'][$key]['group_name'] = field_view_field('field_collection_item', $field_collection_item, 'field_title', array(
+      'label' => 'hidden',
+    ));
+    $group_name = field_get_items('field_collection_item', $field_collection_item, 'field_title');
+    $group_name = ($group_name) ? $group_name[0]['value'] : false;
+    $colors = field_get_items('field_collection_item', $field_collection_item, 'field_color_pick');
+    $variables['color_groups'][$key]['colors'] = ($colors) ? browse_products_get_colors($colors, $field_collection_item->item_id, $display_as_text, $group_name) : false;
+  }
+
+  return $variables;
+}
+
+/**
+ * Returns the html stucture for the colors.
+ */
+function browse_products_get_colors($nodes_references, $layer, $display_as_text, $group_name) {
+  $variables = array();
+  $url_to_images = array();
+
+  $variables['layer'] = $layer;
+  $variables['display_as_text'] = $display_as_text;
+  $variables['group_name'] = $group_name;
+
+  foreach($nodes_references as $key => $node_reference) {
+    $node = node_load($node_reference['target_id']);
+    $variables['colors'][$key]['title'] = $node->title;
+    $variables['colors'][$key]['color_item'] = $node->nid;
+    $variables['colors'][$key]['display_as_text'] = $display_as_text;
+
+    $hex_color = field_get_items('node', $node, 'field_hex_color');
+    if ($hex_color) {
+      $hex_color = ($hex_color) ? $hex_color[0] : false;
+      $variables['colors'][$key]['hex_color'] = field_view_value('node', $node, 'field_hex_color', $hex_color, array(
+        'label' => 'hidden',
+      ));
+    }
+    
+
+    $url_to_image = field_get_items('node', $node, 'field_product_image');
+    $url_to_images['color-item-' . $node->nid] = array(
+      'image_source' => ($url_to_image) ? file_create_url($url_to_image[0]['uri']) : '',
+    );
+  }
+
+  drupal_add_js(array(
+    'browse_product' => array(
+      'layer' => $layer,
+      'images' => $url_to_images,
+    )
+  ), 'setting');
+
+  return theme('browse_product_color', $variables);
+}
+
+function browse_product_inquire_form($form, &$form_state) {
+  $form['products'] = array(
+    '#type' => 'hidden',
+    '#value' => isset($_GET['nid']) ? $_GET['nid'] : 0,
+  );
+  $form['components'] = array(
+    '#type' => 'hidden',
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Inquire',
+  );
+
+  return $form;
+}
+
+function browse_product_inquire_form_submit(&$form, &$form_state) {
+  $node = node_load($form_state['values']['products']);
+  $options['query'] = array(
+    'products' => $node->title,
+    'components' => $form_state['values']['components']
+  );
+  drupal_goto('inquiry', $options);
+}

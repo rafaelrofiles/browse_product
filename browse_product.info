@@ -1,0 +1,10 @@
+name = Browse Product
+description = Browse Product Page
+core = 7.x
+package = Custom
+
+stylesheets[all][] = css/bootstrap-collapse.min.css
+stylesheets[all][] = css/bootstrap-theme-collapse.min.css
+stylesheets[all][] = css/browse-product.css
+;scripts[] = js/bootstrap-collapse.min.js
+;scripts[] = js/browse-product.js
